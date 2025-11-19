@@ -79,7 +79,7 @@ void *response(void* input){
                 cout << reply << endl;
                 break;
             case 6:
-                send(new_socket, "bye", 1024, 0);
+                send(new_socket, "bye", 4, 0);
                 close(new_socket);
                 break;
             case 7:
