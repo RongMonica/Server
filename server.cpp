@@ -34,7 +34,7 @@ string trim(const string &str){
     return str_cmd;
 }
 
-string message_decoding(const string &s, const int new_socket){
+string message_decoding(const string &s){
     unordered_map<string, int> message_code = {
     {"time", 1},
     {"pid", 2},
@@ -64,8 +64,7 @@ string message_decoding(const string &s, const int new_socket){
             cout << reply << endl;
             break;
         case 6:
-            send(new_socket, "bye", 4, 0);
-            close(new_socket);
+            reply = "bye";   
             break;
         case 7:
             reply = "hi client";
@@ -91,9 +90,14 @@ void *response(void* input){
 
         string buffer_str(buffer);
         buffer_str = trim(buffer_str);
-        string reply = message_decoding(buffer_str, new_socket);
+        string reply = message_decoding(buffer_str);
         const char *reply_c = reply.c_str();
-        send(new_socket, reply_c, reply.size(), 0);
+        if(reply == "bye"){
+            send(new_socket, reply_c, reply.size(), 0);
+            close(new_socket);
+        }else{
+            send(new_socket, reply_c, reply.size(), 0);
+        }
         
         printf("Response sent\n");
     }
