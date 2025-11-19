@@ -13,6 +13,7 @@
 using namespace std;
 
 #define PORT 8080
+time_t start_time;
 
 string trim(const string &str){
     string str_cmd;
@@ -33,15 +34,8 @@ string trim(const string &str){
     return str_cmd;
 }
 
-
-time_t start_time;
-void *response(void* input){
-    int new_socket = (int)(intptr_t)input;
-    ssize_t valread;
-    char buffer[1024] = { 0 };
-    char reply[1024];
-
-    unordered_map<string, int> message_decode = {
+string message_decoding(const string &s, const int new_socket){
+    unordered_map<string, int> message_code = {
     {"time", 1},
     {"pid", 2},
     {"rand", 3},
@@ -49,46 +43,55 @@ void *response(void* input){
     {"echo hi", 5},
     {"exit", 6},
     {"hello", 7},};
+    string reply;
+    time_t now = time(nullptr);
+    int message_decode = message_code[s];
+    switch(message_decode){
+        case 1:
+            reply = ctime(&now);
+            break;
+        case 2:
+            reply = to_string(getpid());
+            break;
+        case 3:
+            reply = to_string(rand());
+            break;
+        case 4:
+            reply = to_string(now - start_time);
+            break;
+        case 5:
+            reply = s.substr(5);
+            cout << reply << endl;
+            break;
+        case 6:
+            send(new_socket, "bye", 4, 0);
+            close(new_socket);
+            break;
+        case 7:
+            reply = "hi client";
+            break;
+        default:
+            reply = "unknown command";
+            break;
+    }
+    return reply;
+}
 
+void *response(void* input){
+    int new_socket = (int)(intptr_t)input;
+    ssize_t valread;
+    char buffer[1024] = { 0 };
+    char reply[1024];
+    
     while(1){
         valread = read(new_socket, buffer, sizeof(buffer) - 1); // subtract 1 for the null
         if(valread <=0) break;
         buffer[valread] = '\0';
         cout << "Client said: " << buffer << endl;
+
         string buffer_str(buffer);
         buffer_str = trim(buffer_str);
-
-        string reply;
-        time_t now = time(nullptr);
-        int message_code = message_decode[buffer_str];
-        switch(message_code){
-            case 1:
-                reply = ctime(&now);
-                break;
-            case 2:
-                reply = to_string(getpid());
-                break;
-            case 3:
-                reply = to_string(rand());
-                break;
-            case 4:
-                reply = to_string(now - start_time);
-                break;
-            case 5:
-                reply = buffer_str.substr(5);
-                cout << reply << endl;
-                break;
-            case 6:
-                send(new_socket, "bye", 4, 0);
-                close(new_socket);
-                break;
-            case 7:
-                reply = "hi client";
-                break;
-            default:
-                reply = "unknown command";
-                break;
-        }
+        string reply = message_decoding(buffer_str, new_socket);
         const char *reply_c = reply.c_str();
         send(new_socket, reply_c, reply.size(), 0);
         
@@ -136,10 +139,7 @@ int main(int argc, char const* argv[])
     }
 
     while(1){
-        if ((new_socket
-            = accept(server_fd, (struct sockaddr*)&address,
-                    &addrlen))
-            < 0) {
+        if ((new_socket = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
             perror("accept");
             exit(EXIT_FAILURE);
         }
