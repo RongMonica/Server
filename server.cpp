@@ -76,33 +76,90 @@ string message_decoding(const string &s){
     return reply;
 }
 
-void *response(void* input){
-    int new_socket = (int)(intptr_t)input;
+void response(int server_fd){
     ssize_t valread;
     char buffer[1024] = { 0 };
     char reply[1024];
-    
-    while(1){
-        valread = read(new_socket, buffer, sizeof(buffer) - 1); // subtract 1 for the null
-        if(valread <=0) break;
-        buffer[valread] = '\0';
-        cout << "Client said: " << buffer << endl;
-
-        string buffer_str(buffer);
-        buffer_str = trim(buffer_str);
-        string reply = message_decoding(buffer_str);
-        const char *reply_c = reply.c_str();
-        if(reply == "bye"){
-            send(new_socket, reply_c, reply.size(), 0);
-            close(new_socket);
-        }else{
-            send(new_socket, reply_c, reply.size(), 0);
-        }
-        
-        printf("Response sent\n");
+    int client_fds[FD_SETSIZE];
+    for(int i = 0; i < FD_SETSIZE; i++){
+        client_fds[i] = -1;
     }
-    close(new_socket);
-    return nullptr;
+
+    fd_set readfds;
+    while(1){
+        FD_ZERO(&readfds);
+        FD_SET(server_fd, &readfds);
+        int max_fd = server_fd;
+        for(int i = 0; i < FD_SETSIZE; i++){
+            if(client_fds[i] >= 0){
+                FD_SET(client_fds[i], &readfds);
+                if(client_fds[i] > max_fd){
+                    max_fd = client_fds[i];
+                }
+            }
+        }
+        int nready = select(max_fd + 1, &readfds, NULL, NULL, NULL);
+        if(nready <0){
+            perror("select");
+            exit(EXIT_FAILURE);
+        }
+        // check for new incoming connection on the listening socket
+        if(FD_ISSET(server_fd, &readfds)){
+            int connfd;
+            struct sockaddr_in address;
+            socklen_t addrlen = sizeof(address);
+            if ((connfd = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
+                perror("accept");
+                exit(EXIT_FAILURE);
+            } else {
+                int stored = 0;
+                for(int i = 0; i < FD_SETSIZE; i++){
+                    if(client_fds[i] == -1){
+                        client_fds[i] = connfd;
+                        FD_SET(connfd, &readfds);
+                        stored = 1;
+                        cout << "New connection, fd = " << connfd << "at slot: " << i << endl;
+                        break;
+                    }
+                }
+                if(!stored){
+                    cout << "Too many connections, rejecting fd = " << connfd << endl;
+                    close(connfd);
+                }
+            }
+        }
+
+        // check existing clients for incoming data
+        for(int i = 0; i < FD_SETSIZE; i++){
+            int fd = client_fds[i];
+            if(fd == -1) continue;
+            if(FD_ISSET(fd, &readfds)){
+                valread = read(fd, buffer, sizeof(buffer) - 1);
+                if(valread <=0){
+                    if(valread < 0){
+                        perror("read");
+                    }
+                    cout << "Client fd= " << fd << "disconnected" << endl;
+                    close(fd);
+                    client_fds[i] = -1;
+                }else{
+                    buffer[valread] = '\0';
+                    cout << "Message from client: " << buffer << endl;
+                    string buffer_str(buffer);
+                    buffer_str = trim(buffer_str);
+                    string reply = message_decoding(buffer_str);
+                    const char *reply_c = reply.c_str();
+                    send(fd, reply_c, reply.size(), 0);
+                    cout << "Reply sent to client fd= " << fd << endl;
+                    if(reply == "bye"){
+                        close(fd);
+                        client_fds[i] = -1;
+                    }
+                }
+            }
+        }
+            
+    }
 }
 
 int main(int argc, char const* argv[])
@@ -141,18 +198,9 @@ int main(int argc, char const* argv[])
         perror("listen");
         exit(EXIT_FAILURE);
     }
+    
+    response(server_fd);
 
-    while(1){
-        if ((new_socket = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
-            perror("accept");
-            exit(EXIT_FAILURE);
-        }
-        pthread_t tid;
-        pthread_create(&tid, NULL, response, (void *)(intptr_t)new_socket);
-    }
-  
-    // closing the listening socket
-    close(server_fd);
     return 0;
 }
 
