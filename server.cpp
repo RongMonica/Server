@@ -35,7 +35,7 @@ string trim(const string &str){
 }
 
 string message_decoding(const string &s){
-    unordered_map<string, int> message_code = {
+    unordered_map<string, int> message_decode = {
     {"time", 1},
     {"pid", 2},
     {"rand", 3},
@@ -45,8 +45,8 @@ string message_decoding(const string &s){
     {"hello", 7},};
     string reply;
     time_t now = time(nullptr);
-    int message_decode = message_code[s];
-    switch(message_decode){
+    int message_code = message_decode[s];
+    switch(message_code){
         case 1:
             reply = ctime(&now);
             break;
@@ -100,7 +100,7 @@ void response(int server_fd){
 
         if (select(max_fd + 1, &readfds, NULL, NULL, NULL) < 0){
             perror("select");
-            exit(EXIT_FAILURE); 
+            continue; 
         };
 
         // check for new incoming connection on the listening socket
@@ -110,7 +110,7 @@ void response(int server_fd){
             socklen_t addrlen = sizeof(address);
             if ((connfd = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
                 perror("accept");
-                exit(EXIT_FAILURE);
+                continue;
             } else {
                 int stored = 0;
                 for (int i = 0; i < FD_SETSIZE; i++){
