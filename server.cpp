@@ -79,18 +79,17 @@ string message_decoding(const string &s){
 void response(int server_fd){
     ssize_t valread;
     char buffer[1024] = { 0 };
-    char reply[1024];
     int client_fds[FD_SETSIZE];
     for(int i = 0; i < FD_SETSIZE; i++){
         client_fds[i] = -1;
     }
 
     fd_set readfds;
+    int max_fd = server_fd;
     while(1){
         FD_ZERO(&readfds);
         FD_SET(server_fd, &readfds);
-        int max_fd = server_fd;
-        for(int i = 0; i < FD_SETSIZE; i++){
+        for(int i = 0; i < max_fd + 1; i++){
             if(client_fds[i] >= 0){
                 FD_SET(client_fds[i], &readfds);
                 if(client_fds[i] > max_fd){
@@ -98,13 +97,14 @@ void response(int server_fd){
                 }
             }
         }
-        int nready = select(max_fd + 1, &readfds, NULL, NULL, NULL);
-        if(nready <0){
+
+        if (select(max_fd + 1, &readfds, NULL, NULL, NULL) < 0){
             perror("select");
-            exit(EXIT_FAILURE);
-        }
+            exit(EXIT_FAILURE); 
+        };
+
         // check for new incoming connection on the listening socket
-        if(FD_ISSET(server_fd, &readfds)){
+        if (FD_ISSET(server_fd, &readfds)){
             int connfd;
             struct sockaddr_in address;
             socklen_t addrlen = sizeof(address);
@@ -113,16 +113,17 @@ void response(int server_fd){
                 exit(EXIT_FAILURE);
             } else {
                 int stored = 0;
-                for(int i = 0; i < FD_SETSIZE; i++){
-                    if(client_fds[i] == -1){
+                for (int i = 0; i < FD_SETSIZE; i++){
+                    if (client_fds[i] == -1){
                         client_fds[i] = connfd;
+                        max_fd = max(max_fd, connfd);
                         FD_SET(connfd, &readfds);
                         stored = 1;
-                        cout << "New connection, fd = " << connfd << "at slot: " << i << endl;
+                        cout << "New connection, fd = " << connfd << " at slot: " << i << endl;
                         break;
                     }
                 }
-                if(!stored){
+                if (!stored){
                     cout << "Too many connections, rejecting fd = " << connfd << endl;
                     close(connfd);
                 }
@@ -130,19 +131,19 @@ void response(int server_fd){
         }
 
         // check existing clients for incoming data
-        for(int i = 0; i < FD_SETSIZE; i++){
+        for (int i = 0; i < max_fd + 1; i++){
             int fd = client_fds[i];
-            if(fd == -1) continue;
-            if(FD_ISSET(fd, &readfds)){
+            if (fd == -1) continue;
+            if (FD_ISSET(fd, &readfds)){
                 valread = read(fd, buffer, sizeof(buffer) - 1);
-                if(valread <=0){
+                if (valread <=0){
                     if(valread < 0){
                         perror("read");
                     }
-                    cout << "Client fd= " << fd << "disconnected" << endl;
+                    cout << "Client fd = " << fd << "disconnected" << endl;
                     close(fd);
                     client_fds[i] = -1;
-                }else{
+                } else {
                     buffer[valread] = '\0';
                     cout << "Message from client: " << buffer << endl;
                     string buffer_str(buffer);
@@ -150,31 +151,29 @@ void response(int server_fd){
                     string reply = message_decoding(buffer_str);
                     const char *reply_c = reply.c_str();
                     send(fd, reply_c, reply.size(), 0);
-                    cout << "Reply sent to client fd= " << fd << endl;
-                    if(reply == "bye"){
+                    cout << "Reply sent to client fd = " << fd << endl;
+                    if (reply == "bye"){
                         close(fd);
                         client_fds[i] = -1;
                     }
                 }
             }
         }
-            
     }
 }
 
 int main(int argc, char const* argv[])
 {
     start_time = time(NULL);
-    int server_fd, new_socket;
-    int backlog = 3; // max number of pending connection in queue
+    int server_fd;
+    int backlog = 10; // max number of pending connection in queue
     struct sockaddr_in address;
     int opt = 1;
     socklen_t addrlen = sizeof(address);
 
-
     // Creating socket file descriptor
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("socket failed");
+        perror("Socket failed");
         exit(EXIT_FAILURE);
     }
 
@@ -182,7 +181,7 @@ int main(int argc, char const* argv[])
     if (setsockopt(server_fd, SOL_SOCKET,
                    SO_REUSEADDR | SO_REUSEPORT, &opt,
                    sizeof(opt))) {
-        perror("setsockopt");
+        perror("Setsockopt failed");
         exit(EXIT_FAILURE);
     }
     address.sin_family = AF_INET;
@@ -191,11 +190,11 @@ int main(int argc, char const* argv[])
 
     // Forcefully attaching socket to the port 8080
     if (bind(server_fd, (struct sockaddr*)&address, sizeof(address))< 0) {
-        perror("bind failed");
+        perror("Bind failed");
         exit(EXIT_FAILURE);
     }
     if (listen(server_fd, backlog) < 0) {
-        perror("listen");
+        perror("Listen failed");
         exit(EXIT_FAILURE);
     }
     
@@ -204,7 +203,7 @@ int main(int argc, char const* argv[])
     return 0;
 }
 
-/*message you could send to a server: 
+/*test message you could send to a server: 
 hello: server replies "hi client"
 time: get current server time
 pid: get process ID
