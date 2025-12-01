@@ -35,38 +35,38 @@ string trim(const string &str){
 }
 
 string message_decoding(const string &s){
-    unordered_map<string, int> message_decode = {
-    {"time", 1},
-    {"pid", 2},
-    {"rand", 3},
-    {"uptime", 4},
-    {"echo hi", 5},
-    {"exit", 6},
-    {"hello", 7},};
+    unordered_map<string, char> message_decode = {
+    {"time", 'A'},
+    {"pid", 'B'},
+    {"rand", 'C'},
+    {"uptime", 'D'},
+    {"echo hi", 'E'},
+    {"exit", 'F'},
+    {"hello", 'G'},};
     string reply;
     time_t now = time(nullptr);
     int message_code = message_decode[s];
     switch(message_code){
-        case 1:
+        case 'A':
             reply = ctime(&now);
             break;
-        case 2:
+        case 'B':
             reply = to_string(getpid());
             break;
-        case 3:
+        case 'C':
             reply = to_string(rand());
             break;
-        case 4:
+        case 'D':
             reply = to_string(now - start_time);
             break;
-        case 5:
+        case 'E':
             reply = s.substr(5);
             cout << reply << endl;
             break;
-        case 6:
+        case 'F':
             reply = "bye";   
             break;
-        case 7:
+        case 'G':
             reply = "hi client";
             break;
         default:
