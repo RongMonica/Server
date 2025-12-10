@@ -1,20 +1,23 @@
 #include <netinet/in.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <pthread.h>
-
+#include <cstdio>
 #include <string>
 #include <iostream>
 #include <unordered_map>
 #include <random>
+#include <array>
+#include <cerrno>
+
 using namespace std;
 
-#define PORT 8080
+#define PORT 19879
+#define BUFFER_SIZE 1024
 time_t start_time;
 
+//server receive command starts and ends with letters
 string trim(const string &str){
     string str_cmd;
     int start, end;
@@ -34,8 +37,9 @@ string trim(const string &str){
     return str_cmd;
 }
 
+//commmands that the test server receive. This function returns server's response to commands sent by client
 string message_decoding(const string &s){
-    unordered_map<string, char> message_decode = {
+    static const unordered_map<string, char> message_decode = {
     {"time", 'A'},
     {"pid", 'B'},
     {"rand", 'C'},
@@ -44,11 +48,15 @@ string message_decoding(const string &s){
     {"exit", 'F'},
     {"hello", 'G'},};
     string reply;
-    time_t now = time(nullptr);
-    int message_code = message_decode[s];
+    const time_t now = time(nullptr);
+    auto it = message_decode.find(s);
+    if(it == message_decode.end()){
+        return "unknown command";
+    }
+    const char message_code = it->second;
     switch(message_code){
         case 'A':
-            reply = ctime(&now);
+            reply = string(ctime(&now));
             break;
         case 'B':
             reply = to_string(getpid());
@@ -57,11 +65,10 @@ string message_decoding(const string &s){
             reply = to_string(rand());
             break;
         case 'D':
-            reply = to_string(now - start_time);
+            reply = to_string(now - start_time); //uptime in seconds
             break;
         case 'E':
             reply = s.substr(5);
-            cout << reply << endl;
             break;
         case 'F':
             reply = "bye";   
@@ -76,29 +83,28 @@ string message_decoding(const string &s){
     return reply;
 }
 
+//the server send reply after getting decoded messages
 void response(int server_fd){
     ssize_t valread;
-    char buffer[1024] = { 0 };
-    int client_fds[FD_SETSIZE];
-    for(int i = 0; i < FD_SETSIZE; i++){
-        client_fds[i] = -1;
-    }
+    array<char, BUFFER_SIZE> buffer;
+    array<int, FD_SETSIZE> client_fds{};
+    client_fds.fill(-1);
 
     fd_set readfds;
     int max_fd = server_fd;
     while(1){
         FD_ZERO(&readfds);
         FD_SET(server_fd, &readfds);
-        for(int i = 0; i < max_fd + 1; i++){
-            if(client_fds[i] >= 0){
-                FD_SET(client_fds[i], &readfds);
-                if(client_fds[i] > max_fd){
-                    max_fd = client_fds[i];
+        for(int fd : client_fds){
+            if(fd >= 0){
+                FD_SET(fd, &readfds);
+                if(fd > max_fd){
+                    max_fd = fd;
                 }
             }
         }
 
-        if (select(max_fd + 1, &readfds, NULL, NULL, NULL) < 0){
+        if (select(max_fd + 1, &readfds, nullptr, nullptr, nullptr) < 0){
             perror("select");
             continue; 
         };
@@ -109,7 +115,7 @@ void response(int server_fd){
             struct sockaddr_in address;
             socklen_t addrlen = sizeof(address);
             if ((connfd = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
-                perror("accept");
+                perror("Accept failed");
                 continue;
             } else {
                 int stored = 0;
@@ -135,23 +141,27 @@ void response(int server_fd){
             int fd = client_fds[i];
             if (fd == -1) continue;
             if (FD_ISSET(fd, &readfds)){
-                valread = read(fd, buffer, sizeof(buffer) - 1);
+                valread = read(fd, buffer.data(), buffer.size() - 1);
                 if (valread <=0){
                     if(valread < 0){
-                        perror("read");
+                        perror("Read failed");
                     }
                     cout << "Client fd = " << fd << "disconnected" << endl;
                     close(fd);
                     client_fds[i] = -1;
+                    continue;
                 } else {
                     buffer[valread] = '\0';
-                    cout << "Message from client: " << buffer << endl;
-                    string buffer_str(buffer);
-                    buffer_str = trim(buffer_str);
-                    string reply = message_decoding(buffer_str);
-                    const char *reply_c = reply.c_str();
-                    send(fd, reply_c, reply.size(), 0);
-                    cout << "Reply sent to client fd = " << fd << endl;
+                    cout << "Message from client: " << buffer.data() << endl;
+                    string buffer_str(buffer.data(), static_cast<size_t>(valread));
+                    string str_cmd = trim(buffer_str);
+                    string reply = message_decoding(str_cmd);
+                    ssize_t valsent = send(fd, reply.data(), reply.size(), 0);
+                    if (valsent < 0) {
+                        perror("Send failed");
+                    } else {
+                        cout << "Reply sent to client fd = " << fd << endl;
+                    }
                     if (reply == "bye"){
                         close(fd);
                         client_fds[i] = -1;
@@ -164,12 +174,10 @@ void response(int server_fd){
 
 int main(int argc, char const* argv[])
 {
-    start_time = time(NULL);
+    start_time = time(nullptr);
+    srand(time(nullptr));
     int server_fd;
     int backlog = 10; // max number of pending connection in queue
-    struct sockaddr_in address;
-    int opt = 1;
-    socklen_t addrlen = sizeof(address);
 
     // Creating socket file descriptor
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -178,12 +186,15 @@ int main(int argc, char const* argv[])
     }
 
     // socket options (reuse address/port to allow quickly restart the server)
+    int opt = 1;
     if (setsockopt(server_fd, SOL_SOCKET,
                    SO_REUSEADDR | SO_REUSEPORT, &opt,
-                   sizeof(opt))) {
+                   sizeof(opt)) < 0) {
         perror("Setsockopt failed");
         exit(EXIT_FAILURE);
     }
+    
+    struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(PORT);
@@ -198,8 +209,10 @@ int main(int argc, char const* argv[])
         exit(EXIT_FAILURE);
     }
     
+    cout << "Server running on port " << PORT << endl;
     response(server_fd);
 
+    close(server_fd);
     return 0;
 }
 

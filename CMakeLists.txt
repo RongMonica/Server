@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(server)
+project(TrialServer)
 
-add_executable(server server.cpp)
+add_executable(TrialServer server.cpp)
 
-target_link_libraries(server PRIVATE pthread)
+target_link_libraries(TrialServer PRIVATE pthread)
