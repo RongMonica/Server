@@ -1,7 +1,7 @@
 Simple Multi-Client TCP Server
 
 This is a simple TCP server written in C++.
-It listens on port 8080, accepts multiple clients using select(), and responds to predefined text commands.
+It listens on port 19879, accepts multiple clients using select(), and responds to predefined text commands.
 
 The server is intended for learning how to use:
 socket, bind, listen, accept
